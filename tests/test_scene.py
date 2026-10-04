@@ -181,7 +181,8 @@ def editing():
                 "data/maps/r1m1/triggers.xml", "data/maps/r1m1/cinematriggers.xml"):
         xmlrt.parse((root / rel).read_bytes().decode("cp1251"))
     m2 = App(Game(root)).map("r1m1")
-    assert m2.message(mid) == {"who": "Проверяющий", "text": "Засада — всем стоять.", "time": "5", "model": "r1_man"}
+    assert m2.message(mid) == {"who": "Проверяющий", "text": "Засада — всем стоять.", "time": "5", "model": "r1_man",
+                               "skin": "", "cfg": "", "slot": ""}
     assert [k for k, _a, _t in m2.family(m2.trigger("ve_Rolik"))] == ["fade", "msg", "end"]
     assert "ve_cam02" in m2.paths("cam") and len(m2.path_points("ext", "ve_drive01")) == 2
     b = lua.parse_actions(m2.script(m2.trigger("ve_spawn")))

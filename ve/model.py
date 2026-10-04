@@ -658,17 +658,21 @@ class MapData:
         who, _, text = s.get("value").partition("|")
         if "|" not in s.get("value"):
             who, text = "", s.get("value")
-        return {"who": who, "text": text, "time": s.get("time"), "model": s.get("modelName")}
+        return {"who": who, "text": text, "time": s.get("time"), "model": s.get("modelName"),
+                "skin": s.get("modelSkin"), "cfg": s.get("modelCfg"), "slot": s.get("modelSlot")}
 
-    def set_message(self, mid: str, who: str, text: str, time: str = "", model: str = ""):
+    def set_message(self, mid: str, who: str, text: str, time: str = "", model: str = "", skin: str = "",
+                    cfg: str = "", slot: str = ""):
         d = self.str_doc()
         s = self.messages().get(str(mid))
         if s is None:
             s = Element("string", {"id": str(mid)})
             s.inline = False
             d.root.append(s)
-        if model:
-            s.set("modelName", model)
+        s.set_opt("modelName", model)
+        s.set_opt("modelSkin", skin)
+        s.set_opt("modelCfg", cfg)
+        s.set_opt("modelSlot", slot)
         s.set("value", f"{who}|{text}")
         s.set_opt("time", time)
         s.reorder(["id", "modelName", "modelSkin", "modelCfg", "modelSlot", "value", "sound", "time"])
@@ -1187,6 +1191,13 @@ class Index:
             return [t.get("Name") for t in self.current_map.triggers()] if self.current_map else self.all_triggers()
         if type_ == "npc_model":
             return self.npc_models()
+        if type_ == "portrait":     # models used as message portraits on any map, masks first
+            if "portraits" not in self._cache:
+                raw = "".join(self._raw(f"data/maps/{m}/strings.xml") for m in g.maps())
+                found = re.findall(r'modelName="([^"]+)"', raw)
+                names = sorted(set(found), key=lambda k: (not k.startswith("mask_"), -found.count(k)))
+                self._cache["portraits"] = names + [n for n in self.npc_models() if n not in names]
+            return self._cache["portraits"]
         if type_ == "vehicle":
             return self._ids("data/gamedata/gameobjects/vehicles.xml", r'Class\s*=\s*"Vehicle"\s+Name\s*=\s*"(\w+)"')
         if type_ == "tactic":

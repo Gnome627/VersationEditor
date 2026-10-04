@@ -365,37 +365,52 @@ def _flylinked(bl, b: dict, col: QVBoxLayout):
 
 
 def _message(bl, b: dict, col: QVBoxLayout):
-    """Cutscene message together with its text from the map's strings.xml."""
+    """Cutscene message together with its text and portrait from the map's strings.xml."""
     m = bl.index.current_map
+    keys = ("who", "text", "time", "model", "skin", "cfg", "slot")
     mid = NameBox(bl.index, "strnum", str(b.get("id", "")))
     mid.setFixedWidth(70)
-    col.addLayout(_line("Показать реплику ролика", mid, "через, с", _num_edit(b, "delay", bl, default="0.25")))
-    msg = m.message(str(b.get("id", ""))) or {"who": "", "text": "", "time": "", "model": ""}
-    who = QLineEdit(msg["who"])
+    col.addLayout(_line("Показать реплику ролика", mid))
+    delay = _num_edit(b, "delay", bl, default="0.25")
+    msg = m.message(str(b.get("id", ""))) or {}
+    who = QLineEdit(msg.get("who") or "")
     who.setPlaceholderText("Кто говорит")
-    text = QPlainTextEdit(msg["text"])
+    text = QPlainTextEdit(msg.get("text") or "")
     text.setPlaceholderText("Текст реплики")
     text.setFixedHeight(58)
     text.setTabChangesFocus(True)
-    time = QLineEdit(msg["time"] or "")
+    time = QLineEdit(msg.get("time") or "")
     time.setFixedWidth(44)
-    model = NameBox(bl.index, "npc_model", msg["model"] or "")
-    model.setPlaceholderText("портрет")
+    model = NameBox(bl.index, "portrait", msg.get("model") or "")
+    model.setToolTip("modelName: mask_hero, mask_lisa, r1_man…")
+    small = {}
+    for key, tip in (("skin", "modelSkin"), ("cfg", "modelCfg"), ("slot", "modelSlot")):
+        e = QLineEdit(msg.get(key) or "")
+        e.setFixedWidth(44)
+        e.setToolTip(tip)
+        small[key] = e
     col.addWidget(who)
     col.addWidget(text)
-    col.addLayout(_line("на экране, с", time, model, stretch_last=True))
+    col.addLayout(_line("через, с", delay, "на экране, с", time))
+    col.addLayout(_line("портрет", model, stretch_last=True))
+    col.addLayout(_line("скин", small["skin"], "cfg", small["cfg"], "слот", small["slot"]))
 
     def save():
-        cur = m.message(str(b.get("id", ""))) or {"who": "", "text": "", "time": "", "model": ""}
+        mid_now = str(b.get("id", "")).strip()
+        if not mid_now:
+            return
+        cur = m.message(mid_now) or {}
         new = {"who": who.text().strip(), "text": text.toPlainText().replace("\n", " ").strip(),
-               "time": time.text().strip(), "model": model.text().strip()}
-        if not str(b.get("id", "")).strip() or new == {k: (cur[k] or "") for k in new}:
+               "time": time.text().strip(), "model": model.text().strip(),
+               "skin": small["skin"].text().strip(), "cfg": small["cfg"].text().strip(),
+               "slot": small["slot"].text().strip()}
+        if new == {k: (cur.get(k) or "") for k in keys}:
             return
-        if not new["text"] and not new["who"] and m.message(str(b["id"])) is None:
+        if not cur and not any(new.values()):       # nothing typed yet: do not create an empty entry
             return
-        m.set_message(str(b["id"]), new["who"], new["text"], new["time"], new["model"])
-    who.editingFinished.connect(save)
-    time.editingFinished.connect(save)
+        m.set_message(mid_now, new["who"], new["text"], new["time"], new["model"], new["skin"], new["cfg"], new["slot"])
+    for w in (who, time, *small.values()):
+        w.editingFinished.connect(save)
     model.committed.connect(lambda _v: save())
     old_focus_out = text.focusOutEvent
 
