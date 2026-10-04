@@ -466,9 +466,9 @@ def _reindent(el: Element):
 # --- map ---
 
 EVENTS = [
-    ("GE_OBJECT_ENTERS_LOCATION", "въезд в локацию", "obj"),
-    ("GE_OBJECT_LEAVES_LOCATION", "выезд из локации", "obj"),
-    ("GE_OBJECT_IN_LOCATION", "объект в локации", "obj"),
+    ("GE_OBJECT_ENTERS_LOCATION", "въезд в локацию", "loc"),
+    ("GE_OBJECT_LEAVES_LOCATION", "выезд из локации", "loc"),
+    ("GE_OBJECT_IN_LOCATION", "объект в локации", "loc"),
     ("GE_TIME_PERIOD", "прошло секунд", "timeout"),
     ("GE_GAME_START", "начало игры", ""),
     ("GE_OBJECT_DIE", "объект уничтожен", "obj"),
@@ -1208,11 +1208,15 @@ class Index:
             return list(self.current_map.messages()) if self.current_map else []
         if type_.startswith("obj:"):
             return self.objects_of(type_[4:])
+        if type_ == "loc":          # locations only: what location events can refer to
+            m = self.current_map
+            return [n for n, o in m.objects.items() if m.kind(o) == "loc"] if m else []
         if type_ == "obj":
-            if self.current_map:
-                return [n for n, o in self.current_map.objects.items()
-                        if self.current_map.kind(o) in ("loc", "town", "npc") or not o.get("Prototype").startswith("Breakable")][:4000]
-            return []
+            m = self.current_map
+            if not m:
+                return []
+            pairs = [(n, o.get("Prototype")) for n, o in m.objects.items()]
+            return self._useful(pairs) + self._scripted(m)
         if type_ == "qitem":
             return self._ids("data/gamedata/gameobjects/questitems.xml", r'\bName\s*=\s*"([^"]+)"')
         if type_ == "item":
@@ -1243,9 +1247,31 @@ class Index:
         if key not in self._cache:
             raw = self._raw(f"data/maps/{map_name}/dynamicscene.xml")
             pairs = re.findall(r'Name="([^"]+)"\s+(?:Belong="[^"]*"\s+)?Prototype="([^"]+)"', raw)
-            skip = ("Breakable", "Cable", "lamppost", "r3_tropic", "r4_desert", "factory_box")
-            self._cache[key] = [n for n, p in pairs if not p.startswith(skip)]
+            self._cache[key] = self._useful(pairs)
         return self._cache[key]
+
+    DECOR = ("Breakable", "Cable", "lamppost", "r3_tropic", "r4_desert", "factory_box")
+    PLACES = ("genericLocation", "NPC")
+
+    def _useful(self, pairs: list[tuple[str, str]]) -> list[str]:
+        """Drop scenery: trees, fences, wires and any prototype placed in bulk."""
+        count: dict[str, int] = {}
+        for _n, p in pairs:
+            count[p] = count.get(p, 0) + 1
+        return [n for n, p in pairs if n and (p in self.PLACES or p in self.towns.protos
+                                              or (count[p] <= 12 and not p.startswith(self.DECOR)))]
+
+    def _scripted(self, m) -> list[str]:
+        """Names created by the map's scripts: teams, their vehicles, actors."""
+        out = []
+        for t in m.triggers():
+            code = m.script(t)
+            for name, protos in re.findall(r'(?:TeamCreate|CreateTeam|TeamCreateWithWarez)\s*\(\s*"(\w+)"[^{}]*\{([^{}]*)\}', code):
+                out.append(name)
+                out += [f"{name}_vehicle_{i}" for i in range(len(re.findall(r'"', protos)) // 2)]
+            out += re.findall(r'CreateVehicleEx\s*\(\s*"\w+"\s*,\s*"(\w+)"', code)
+            out += re.findall(r'CreateNewDummyObject\s*\(\s*"\w+"\s*,\s*"(\w+)"', code)
+        return list(dict.fromkeys(out))
 
     def height(self, x: float, z: float) -> float | None:
         return self.game.height(self.current_map.name, x, z) if self.current_map else None

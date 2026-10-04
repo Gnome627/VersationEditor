@@ -66,7 +66,7 @@ class EventsEditor(QWidget):
                 mi.committed.connect(lambda v, i=i: self._set(i, "msgid", v))
                 l.addWidget(mi, 1)
             elif kind and eid not in CINE_EVENTS:
-                box = NameBox(idx, "obj", ev.get("ObjName", ""))
+                box = NameBox(idx, "loc" if kind == "loc" else "obj", ev.get("ObjName", ""))
                 box.committed.connect(lambda v, i=i: self._set(i, "ObjName", v))
                 l.addWidget(box, 1)
             else:
