@@ -1,0 +1,13 @@
+# build output
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
+
+# agent files: instructions, offscreen screenshot tools and their output
+.claude/
+CLAUDE.md
+AGENTS.md
+tools/
+shots/
