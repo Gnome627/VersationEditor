@@ -1251,6 +1251,14 @@ class Index:
             return [t.get("Name") for t in self.current_map.triggers()] if self.current_map else self.all_triggers()
         if type_ == "npc_model":
             return self.npc_models()
+        if type_ == "music":        # ids from music.xml, cinematic tracks first
+            if "music" not in self._cache:
+                raw = self._raw("data/music/music.xml")
+                raw = re.sub(r"<!--.*?-->", "", raw, flags=re.S)
+                pairs = re.findall(r'<model\s+id="([^"]+)"\s+file="([^"]*)"', raw)
+                cine = [i for i, f in pairs if "cinematics" in f.lower()]
+                self._cache["music"] = cine + [i for i, _f in pairs if i not in cine]
+            return self._cache["music"]
         if type_ == "portrait":     # models used as message portraits on any map, masks first
             if "portraits" not in self._cache:
                 raw = "".join(self._raw(f"data/maps/{m}/strings.xml") for m in g.maps())

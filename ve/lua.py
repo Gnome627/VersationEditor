@@ -147,7 +147,7 @@ ACT_SPECS = [
                                     F("rs", "enum", [("RS_ENEMY", "враг"), ("RS_NEUTRAL", "нейтрал"),
                                                      ("RS_ALLY", "союзник")], "RS_ENEMY")],
          "SetTolerance({a:n}, {b:n}, {rs:c})", group="Мир"),
-    Spec("music", "Включить музыку", [F("name", "text")], "PlayCustomMusic({name:s})", group="Мир"),
+    Spec("music", "Включить музыку", [F("name", "music")], "PlayCustomMusic({name:s})", group="Мир"),
     Spec("msgbox", "Показать окно с сообщением", [F("id", "int", default="0")], "SpawnMessageBox({id:s})", where="trigger", group="Ролик"),
     Spec("cinemsg", "Показать реплику ролика", [F("id", "int", default="0"), F("delay", "num", default="0.25")],
          "AddCinematicMessage({id:n}, {delay:n})", where="trigger", group="Ролик"),
