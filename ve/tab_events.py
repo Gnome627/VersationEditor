@@ -247,6 +247,7 @@ class EventsTab(QWidget):
         self.path_view.changed.connect(self._path_changed)
         self.path_view.renamed.connect(lambda _n: self.fill_tree())
         self.stack.addWidget(self.path_view)
+        self.stack.addWidget(self._build_bar())
         right.lay.addWidget(self.stack)
         split.addWidget(right)
         app.index.pick = self.view.pick
@@ -322,7 +323,7 @@ class EventsTab(QWidget):
         form.addRow(self.p_proto_l, self.p_proto)
         # town building names live in object_names.xml too
         self.p_parts = {}
-        for kind, title in (("bar", "Бар"), ("workshop", "Мастерская"), ("shop", "Магазин")):
+        for kind, title in (("workshop", "Мастерская"), ("shop", "Магазин")):
             e = QLineEdit()
             e.editingFinished.connect(lambda kind=kind, e=e: self._part_name(kind, e))
             l = QLabel(title)
@@ -363,6 +364,35 @@ class EventsTab(QWidget):
         self.p_trigs = QVBoxLayout()
         self.p_trigs.setSpacing(2)
         f.addLayout(self.p_trigs)
+        f.addStretch(1)
+        return sa
+
+    def _build_bar(self):
+        sa, f = self._scroll()
+        self.b_name = QLineEdit()
+        self.b_name.setToolTip("Имя объекта")
+        self.b_name.editingFinished.connect(self._rename_obj)
+        f.addWidget(self.b_name)
+        self.b_full = QLineEdit()
+        self.b_full.setPlaceholderText("Название в игре")
+        self.b_full.editingFinished.connect(lambda: self._full(self.b_full))
+        f.addWidget(self.b_full)
+        self.b_kind = Choice([("bar", "Бар с барменом"), ("barWithoutBarman", "Бар без бармена")], "bar")
+        self.b_kind.picked.connect(self._bar_kind)
+        r = QHBoxLayout()
+        r.addWidget(self.b_kind)
+        r.addStretch(1)
+        f.addLayout(r)
+        hr = QHBoxLayout()
+        hr.addWidget(head("NPC"))
+        hr.addStretch(1)
+        an = plus_button()
+        an.clicked.connect(self._add_npc)
+        hr.addWidget(an)
+        f.addLayout(hr)
+        self.b_npcs = QVBoxLayout()
+        self.b_npcs.setSpacing(2)
+        f.addLayout(self.b_npcs)
         f.addStretch(1)
         return sa
 
@@ -610,19 +640,28 @@ class EventsTab(QWidget):
                 full = m.full_name(t.get("Name"))
                 it = self._item(full.capitalize() if full else t.get("Name"), t, "town")
                 it.setToolTip(t.get("Name"))
-                kids = []
-                for n in m.npcs(t):
-                    kids.append((self._item(m.full_name(n.get("Name")) or n.get("Name"), n, "npc"), n))
+                kids = []          # (item, element, [(npc item, npc)])
+                for bar in m.bars(t):
+                    title = m.full_name(bar.get("Name")) or ("Бар" if bar.get("Prototype") == "bar" else "Бар без бармена")
+                    npcs = [(self._item(m.full_name(n.get("Name")) or n.get("Name"), n, "npc"), n)
+                            for n in bar.elements("Object") if m.kind(n) == "npc"]
+                    kids.append((self._item(title, bar, "bar"), bar, npcs))
                 for l in m.locations(t):
-                    kids.append((self._item(l.get("Name"), l, "loc", dim=True), l))
-                shown = [k for k in kids if keep(k[0].text(), k[1].get("Name"))]
+                    kids.append((self._item(l.get("Name"), l, "loc", dim=True), l, []))
+                hit = lambda k, el: keep(k.text(), el.get("Name"))
+                shown = [(k, el, [x for x in sub if hit(*x)] if flt and not hit(k, el) else sub)
+                         for k, el, sub in kids if hit(k, el) or any(hit(*x) for x in sub)]
                 if keep(it.text(), t.get("Name")) or shown:
                     self.tm.appendRow(it)
                     note(it, t)
-                    for k, el in (kids if not flt else shown):
-                        k.setToolTip(el.get("Name"))
+                    for k, el, sub in (kids if not flt else shown):
+                        k.setToolTip(el.get("Name") + ("" if m.kind(el) != "bar" else f" ({el.get('Prototype')})"))
                         it.appendRow(k)
                         note(k, el)
+                        for nk, n in sub:
+                            nk.setToolTip(n.get("Name"))
+                            k.appendRow(nk)
+                            note(nk, n)
             for l in m.locations():
                 npcs = m.npcs(l)
                 if not keep(l.get("Name"), *[n.get("Name") for n in npcs]):
@@ -654,8 +693,13 @@ class EventsTab(QWidget):
                 it = self._item(t.get("Name"), t, "trigger", dim=t.get("active") != "1")
                 self.tm.appendRow(it)
                 note(it, t)
-        if flt or (target is not None and target.parent() is not None):
-            self.tree.expandAll() if flt else self.tree.setExpanded(target.parent().index(), True)
+        if flt:
+            self.tree.expandAll()
+        else:
+            p = target.parent() if target is not None else None
+            while p is not None:
+                self.tree.setExpanded(p.index(), True)
+                p = p.parent()
         self._loading = False
         if target is not None:
             self.tree.setCurrentIndex(target.index())
@@ -677,8 +721,11 @@ class EventsTab(QWidget):
             m.addAction("Удалить", lambda: self._delete_path(kind, name))
         elif ix.isValid() and ix.data(KIND) != "group":
             el, kind = ix.data(EL), ix.data(KIND)
-            if kind in ("town", "loc"):
+            if kind in ("town", "loc", "bar"):
                 m.addAction("Добавить NPC", lambda: (self.select(el), self._add_npc()))
+            if kind == "town":
+                m.addAction("Добавить бар", lambda: self._add_bar(el, True))
+                m.addAction("Добавить бар без бармена", lambda: self._add_bar(el, False))
             if self.mode == "scenes":
                 m.addAction("Показать как триггер", lambda: (self.set_mode("trigs"), self.select(el)))
                 m.addAction("Удалить ролик", lambda: self._delete_scene(el))
@@ -760,6 +807,12 @@ class EventsTab(QWidget):
                 self._show_trigger()
                 self.stack.setCurrentIndex(3)
             self.update_marks()
+        elif kind == "bar":
+            self.view.highlight(set())
+            self.view.set_marks([])
+            self.view.select(el.parent, center=not from_map)
+            self._show_bar()
+            self.stack.setCurrentIndex(6)
         elif kind == "npc":
             host = el.parent
             if self.map.kind(host) == "bar":
@@ -847,7 +900,7 @@ class EventsTab(QWidget):
         self.map.set_attr(self.cur, attr, value, optional)
 
     def _rename_obj(self):
-        w = self.n_name if self.cur_kind == "npc" else self.p_name
+        w = {"npc": self.n_name, "bar": self.b_name}.get(self.cur_kind, self.p_name)
         new = w.text().strip()
         if self._loading or self.cur is None or new == self.cur.get("Name"):
             return
@@ -1000,8 +1053,30 @@ class EventsTab(QWidget):
         self.view.rebuild()
         self.fill_tree()
 
+    def _add_bar(self, town, with_barman: bool):
+        bar = self.map.add_bar(town, with_barman)
+        self.select(bar)
+        self.b_full.setFocus()
+
+    def _show_bar(self):
+        el, m = self.cur, self.map
+        self.b_name.setText(el.get("Name"))
+        self.b_full.setText(m.full_name(el.get("Name")))
+        self.b_kind.set_value(el.get("Prototype"))
+        self._clear(self.b_npcs)
+        for n in el.elements("Object"):
+            if m.kind(n) == "npc":
+                self.b_npcs.addWidget(self._link(m.full_name(n.get("Name")) or n.get("Name"),
+                                                 lambda _=False, n=n: self.select(n), n.get("Name")))
+
+    def _bar_kind(self, proto: str):
+        if self._loading or self.cur is None:
+            return
+        self.map.set_bar_kind(self.cur, proto == "bar")
+        self.select(self.cur)
+
     def _add_npc(self):
-        if self.cur is None or self.cur_kind not in ("town", "loc"):
+        if self.cur is None or self.cur_kind not in ("town", "loc", "bar"):
             return
         name = ask_text(self, "Новый NPC", "Имя объекта", self.map.unique("NewNpc"))
         if not name:

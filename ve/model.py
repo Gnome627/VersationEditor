@@ -749,7 +749,61 @@ class MapData:
             return "npc"
         if p in self.towns.protos:
             return "town"
-        return p if p in ("bar", "shop", "workshop") else "other"
+        if p in ("bar", "barWithoutBarman"):
+            return "bar"
+        return p if p in ("shop", "workshop") else "other"
+
+    def bars(self, town: Element) -> list[Element]:
+        return [c for c in town.elements("Object") if self.kind(c) == "bar"]
+
+    def barman(self, bar: Element) -> Element | None:
+        return next((n for n in bar.elements("Object") if n.get("NpcType") == "BARMAN"), None)
+
+    def add_bar(self, town: Element, with_barman: bool) -> Element:
+        """Add a bar to a town. A plain bar gets an explicit barman, otherwise the engine
+        spawns one named 'NPC' on its own."""
+        tn = town.get("Name")
+        name = self.unique(f"{tn}_Bar" if with_barman else f"{tn}_House")
+        last = self.bars(town)
+        bar = Element("Object", {"Name": name, "Belong": town.get("Belong"),
+                                 "Prototype": "bar" if with_barman else "barWithoutBarman"})
+        bar.inline = False
+        if last:
+            town.insert_after(last[-1], bar)
+        else:
+            town.insert_at(0, bar, blank_line=False)
+        self.objects[name] = bar
+        self.set_full_name(name, "Бар" if with_barman else "Дом")
+        if with_barman:
+            self._add_barman(bar)
+        self.scene.touch()
+        return bar
+
+    def _add_barman(self, bar: Element):
+        name = self.unique(bar.get("Name") + "_Barman")
+        # look like the other barmen of this map, not like whoever lives in the town
+        models = [c.get("ModelName") for c in self.objects.values() if c.get("NpcType") == "BARMAN" and c.get("ModelName")]
+        bm = Element("Object", {"Name": name, "Belong": bar.get("Belong"), "Prototype": "NPC",
+                                "ModelName": models[0] if models else "r1_man", "NpcType": "BARMAN", "SpokenCount": "0"})
+        bm.inline = False
+        if bar.children:
+            bar.insert_at(0, bm, blank_line=False)
+        else:
+            bar.append(bm)
+        self.objects[name] = bm
+        self.set_full_name(name, "Бармен")
+
+    def set_bar_kind(self, bar: Element, with_barman: bool):
+        """Switch between 'bar' and 'barWithoutBarman', adding or removing the barman."""
+        if (bar.get("Prototype") == "bar") == with_barman:
+            return
+        bar.set("Prototype", "bar" if with_barman else "barWithoutBarman")
+        bm = self.barman(bar)
+        if with_barman and bm is None:
+            self._add_barman(bar)
+        elif not with_barman and bm is not None:
+            self.remove(bm)
+        self.scene.touch()
 
     def towns_list(self) -> list[Element]:
         return [o for o in self.scene.root.elements("Object") if self.kind(o) == "town"]
@@ -852,9 +906,8 @@ class MapData:
             raise GameError(f"объект «{name}» уже есть на карте")
         host = place
         if self.kind(place) == "town":
-            host = next((c for c in place.elements("Object") if self.kind(c) == "bar"), None)
-            if host is None:
-                host = self._child(place, place.get("Name") + "_Bar", "bar", first=True)
+            bars = self.bars(place)
+            host = bars[0] if bars else self.add_bar(place, True)
         a = {"Name": name, "Belong": place.get("Belong", "1100"), "Prototype": "NPC", "ModelName": model}
         if skin:
             a["skin"] = skin
@@ -1086,36 +1139,43 @@ class MapData:
                 self.set_script(t, nc)
 
 
-def look_quat(cam: tuple, target: tuple) -> str:
-    """Camera rotation looking from cam to target (x, y, z).
+def camera_forward(rot: str) -> tuple[float, float, float]:
+    """View direction of a camera quaternion "x y z w".
 
-    Derived from original paths: q = (sin(p/2)cos(y/2), cos(p/2)sin(y/2),
-    sin(p/2)sin(y/2), cos(p/2)cos(y/2)); y is heading from +Z to +X, p is
-    elevation (negative looks down).
+    The engine rotates +Z by the inverse quaternion. Checked against original cutscenes:
+    with this rule the camera points at the actors of its own scene (median cos 0.85),
+    with the plain rotation it does not.
     """
+    v = parse_vec(rot)
+    if len(v) < 4:
+        return 0.0, 0.0, 1.0
+    n = math.sqrt(sum(c * c for c in v[:4])) or 1.0
+    x, y, z, w = (-v[0] / n, -v[1] / n, -v[2] / n, v[3] / n)      # conjugate
+    # q * (0, 0, 1) * q^-1
+    return 2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)
+
+
+def look_quat(cam: tuple, target: tuple) -> str:
+    """Camera rotation (no roll) looking from cam to target (x, y, z)."""
     dx, dy, dz = target[0] - cam[0], target[1] - cam[1], target[2] - cam[2]
     yaw = math.atan2(dx, dz)
-    pitch = math.atan2(dy, math.hypot(dx, dz) or 1e-6)
-    sy, cy, sp, cp = math.sin(yaw / 2), math.cos(yaw / 2), math.sin(pitch / 2), math.cos(pitch / 2)
-    return f"{sp * cy:.3f} {cp * sy:.3f} {sp * sy:.3f} {cp * cy:.3f}"
+    elev = math.atan2(dy, math.hypot(dx, dz) or 1e-6)
+    sy, cy, se, ce = math.sin(yaw / 2), math.cos(yaw / 2), math.sin(elev / 2), math.cos(elev / 2)
+    return f"{se * cy:.3f} {-ce * sy:.3f} {-se * sy:.3f} {ce * cy:.3f}"
 
 
 def quat_look(cam: tuple, rot: str, ground) -> tuple[float, float]:
     """Where the camera looks: ground point along the view ray (or 40 m ahead)."""
-    v = parse_vec(rot)
-    if len(v) < 4:
-        return cam[0], cam[2] + 40.0
-    qx, qy, qz, qw = v[:4]
-    yaw = 2 * math.atan2(qy, qw)
-    c, s = math.cos(yaw / 2), math.sin(yaw / 2)
-    sp = qx / c if abs(c) > 0.3 else (qz / s if abs(s) > 1e-6 else 0.0)
-    pitch = 2 * math.asin(max(-1.0, min(1.0, sp)))
+    fx, fy, fz = camera_forward(rot)
+    flat = math.hypot(fx, fz)
+    if flat < 1e-6:                      # straight down or up
+        return cam[0], cam[2]
     g = ground(cam[0], cam[2])
     h = cam[1] - (g if g is not None else cam[1])
     d = 40.0
-    if pitch < math.radians(-2) and h > 0.5:
-        d = min(max(h / math.tan(-pitch), 5.0), 400.0)
-    return cam[0] + d * math.sin(yaw), cam[2] + d * math.cos(yaw)
+    if fy < -0.035 and h > 0.5:
+        d = min(max(h * flat / -fy, 5.0), 400.0)
+    return cam[0] + d * fx / flat, cam[2] + d * fz / flat
 
 
 def yaw_to_rot(deg: float) -> str:
