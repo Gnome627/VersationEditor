@@ -151,6 +151,18 @@ def editing():
     assert any(b["k"] == "trigger" for b in start_list.blocks)
     assert not any(start_list.hidden(b) is False and b["k"] in ("trigger", "selfoff") for b in start_list.blocks)
     assert not et.scene_view._warnings(m.family(start))
+    # fade-in fires at once, even when the cutscene is skipped: critical blocks there are fine;
+    # the same block in a part tied to a message or a camera flight is warned about
+    quest = {"k": "trigger", "do": "on", "trigger": "HOSPITAL"}
+    keep_fade = lua.parse_actions(m.script(fade))
+    m.set_blocks(fade, [quest] + keep_fade)
+    assert not et.scene_view._warnings(m.family(start))
+    m.set_blocks(fade, keep_fade)
+    msg_t = next(t for k, _a, t in m.family(start) if k == "msg")
+    keep_msg = lua.parse_actions(m.script(msg_t))
+    m.set_blocks(msg_t, [quest] + keep_msg)
+    assert any("HOSPITAL" in w for w in et.scene_view._warnings(m.family(start)))
+    m.set_blocks(msg_t, keep_msg)
 
     # --- paths ---
     et._new_path("cam")

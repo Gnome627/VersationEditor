@@ -248,7 +248,8 @@ class CutsceneView(QScrollArea):
         # critical blocks belong to the end trigger: other parts may not run when the cutscene is skipped
         own = {t.get("Name") for _k, _a, t in fam} | {self.start.get("Name")}
         for kind, arg, t in fam:
-            if kind == "end":
+            # fade-in fires the moment the cutscene starts, so its part runs even when skipped at once
+            if kind in ("end", "fade"):
                 continue
             found = []
             for blk in lua.parse_actions(self.map.script(t)):

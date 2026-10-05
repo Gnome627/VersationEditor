@@ -260,8 +260,9 @@ class EventsTab(QWidget):
         split.addWidget(right)
         app.index.pick = self.view.pick
         app.index.center = self.map_center
-        split.setSizes([290, 640, 430])
-        split.setStretchFactor(1, 1)
+        split.setSizes([235, 590, 575])     # the trigger panel is wide: long script lines must fit
+        split.setStretchFactor(1, 3)
+        split.setStretchFactor(2, 2)
         self.mode = "places"
         self.b_places.setChecked(True)
         start = "r1m1" if "r1m1" in maps else (maps[0] if maps else "")
