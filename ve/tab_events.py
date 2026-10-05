@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QFormLayout, QHBoxLayout, QHe
                                QPushButton, QScrollArea, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem,
                                QTreeView, QVBoxLayout, QWidget)
 
-from . import lua
+from . import lua, theme
 from .game import GameError, fmt
 from .mapview import MapView
 from .model import EVENT_BY, EVENTS, rot_to_yaw, yaw_to_rot
@@ -193,7 +193,8 @@ class EventsTab(QWidget):
         row.setSpacing(3)
         self.setObjectName("eventsTab")
         self.mode_btns = {}
-        for mode, title in (("places", "Места"), ("trigs", "Триггеры"), ("scenes", "Ролики"), ("paths", "Пути")):
+        self._raw = None            # a cutscene start the user asked to see as a plain trigger
+        for mode, title in (("places", "Места"), ("trigs", "Триггеры"), ("paths", "Пути")):
             b = QPushButton(title)
             b.setCheckable(True)
             b.setStyleSheet("padding: 0px 3px;")
@@ -234,6 +235,13 @@ class EventsTab(QWidget):
         split.addWidget(self.view)
 
         right = Panel()
+        # one switch for any trigger, a cutscene included: its whole script as text instead of blocks
+        self.t_code_btn = QPushButton("Скрипт текстом")
+        self.t_code_btn.setCheckable(True)
+        self.t_code_btn.setToolTip("Показать весь Lua-скрипт триггера текстом; выключить — вернуться к блокам")
+        self.t_code_btn.clicked.connect(self._toggle_code)
+        self.t_code_btn.hide()
+        right.lay.addWidget(self.t_code_btn)
         self.stack = QStackedWidget()
         self.stack.addWidget(QWidget())
         self.stack.addWidget(self._build_place())
@@ -470,10 +478,6 @@ class EventsTab(QWidget):
         hr = QHBoxLayout()
         hr.addWidget(head("Что сделать"))
         hr.addStretch(1)
-        self.t_code_btn = QPushButton("Текстом")
-        self.t_code_btn.setCheckable(True)
-        self.t_code_btn.clicked.connect(self._toggle_code)
-        hr.addWidget(self.t_code_btn)
         f.addLayout(hr)
         self.t_blocks = BlockList(self.app.index, "act", "trigger", self.app.quests.title)
         self.t_blocks.changed.connect(self._blocks_changed)
@@ -522,6 +526,7 @@ class EventsTab(QWidget):
 
     def _blank(self):
         self.cur, self.cur_kind = None, ""
+        self.t_code_btn.hide()
         self.stack.setCurrentIndex(0)
         self.view.set_marks([])
         self.view.set_path()
@@ -575,6 +580,7 @@ class EventsTab(QWidget):
 
     def select_path(self, kind: str, name: str):
         self.cur, self.cur_kind = None, "path"
+        self.t_code_btn.hide()
         self.view.select(None)
         self.view.highlight(set())
         self.view.set_marks([])
@@ -595,7 +601,7 @@ class EventsTab(QWidget):
         except GameError as e:
             warn(self, str(e))
             return
-        self.mode = "scenes"
+        self.mode = "trigs"
         self.select(t)
 
     def _new_path(self, kind: str):
@@ -691,12 +697,34 @@ class EventsTab(QWidget):
                         target = it
             self.tree.expandAll()
         elif m:
-            for t in (m.cutscenes() if self.mode == "scenes" else m.triggers()):
-                if not keep(t.get("Name"), m.script(t) if len(flt) > 2 else ""):
+            # a cutscene is its start trigger with the triggers it drives folded under it
+            parts: dict[int, list] = {}
+            member = set()
+            for s in m.cutscenes():
+                fam = [t for _k, _a, t in m.family(s) if not m.is_cutscene(t)]
+                parts[id(s)] = fam
+                member.update(id(t) for t in fam)
+
+            def hit(t):
+                return keep(t.get("Name"), m.script(t) if len(flt) > 2 else "")
+            for t in m.triggers():
+                if id(t) in member:
+                    continue
+                kids = parts.get(id(t), [])
+                shown = [k for k in kids if hit(k)]
+                if not hit(t) and not shown:
                     continue
                 it = self._item(t.get("Name"), t, "trigger", dim=t.get("active") != "1")
+                if id(t) in parts:
+                    it.setIcon(theme.icon("film"))
+                    it.setToolTip("Ролик: запускающий триггер и его части")
                 self.tm.appendRow(it)
                 note(it, t)
+                for k in (shown if flt else kids):
+                    ki = self._item(k.get("Name"), k, "trigger", dim=True)
+                    ki.setToolTip("Часть ролика; открывается как обычный триггер")
+                    it.appendRow(ki)
+                    note(ki, k)
         if flt:
             self.tree.expandAll()
         else:
@@ -730,15 +758,16 @@ class EventsTab(QWidget):
             if kind == "town":
                 m.addAction("Добавить бар", lambda: self._add_bar(el, True))
                 m.addAction("Добавить бар без бармена", lambda: self._add_bar(el, False))
-            if self.mode == "scenes":
-                m.addAction("Показать как триггер", lambda: (self.set_mode("trigs"), self.select(el)))
-                m.addAction("Удалить ролик", lambda: self._delete_scene(el))
-            else:
-                m.addAction("Удалить", lambda: self._delete(el))
+            if kind == "trigger" and self.map.is_cutscene(el):
+                if self._raw is el:
+                    m.addAction("Показать ролик", lambda: self._as_trigger(None, el))
+                else:
+                    m.addAction("Показать как обычный триггер", lambda: self._as_trigger(el, el))
+                m.addAction("Удалить ролик целиком", lambda: self._delete_scene(el))
+            m.addAction("Удалить", lambda: self._delete(el))
         else:
             if self.mode == "trigs":
                 m.addAction("Новый триггер", self._add_trigger)
-            elif self.mode == "scenes":
                 m.addAction("Новый ролик", self._new_cutscene)
             elif self.mode == "paths":
                 m.addAction("Новый путь камеры", lambda: self._new_path("cam"))
@@ -747,6 +776,10 @@ class EventsTab(QWidget):
                 m.addAction("Новая локация", lambda: self._create_at("loc", self.map_center()[0], self.map_center()[1]))
                 m.addAction("Новый город", lambda: self._create_at("town", self.map_center()[0], self.map_center()[1]))
         m.exec(self.tree.viewport().mapToGlobal(pos))
+
+    def _as_trigger(self, raw, el):
+        self._raw = raw
+        self.select(el)
 
     def map_center(self):
         c = self.view.mapToScene(self.view.viewport().rect().center())
@@ -768,9 +801,10 @@ class EventsTab(QWidget):
 
     def _add_clicked(self):
         if self.mode == "trigs":
-            self._add_trigger()
-        elif self.mode == "scenes":
-            self._new_cutscene()
+            m = QMenu(self)
+            m.addAction("Триггер", self._add_trigger)
+            m.addAction("Ролик", self._new_cutscene)
+            m.exec(self.add_btn.mapToGlobal(self.add_btn.rect().bottomLeft()))
         elif self.mode == "paths":
             m = QMenu(self)
             m.addAction("Путь камеры", lambda: self._new_path("cam"))
@@ -789,9 +823,14 @@ class EventsTab(QWidget):
             return
         kind = "trigger" if el.tag == "trigger" else self.map.kind(el)
         want = "places"
-        if kind == "trigger":       # show the timeline only when coming from cutscene mode
-            want = "scenes" if self.mode == "scenes" and self.map.is_cutscene(el) else "trigs"
+        timeline = False
+        if kind == "trigger":       # a cutscene start opens as a timeline unless asked otherwise
+            want = "trigs"
+            timeline = self.map.is_cutscene(el) and el is not self._raw and not self._code_mode
+            if el is not self._raw:
+                self._raw = None
         self.cur, self.cur_kind = el, kind
+        self.t_code_btn.setVisible(kind == "trigger")
         self.view.set_path()
         if want != self.mode:
             self.mode = want
@@ -804,7 +843,7 @@ class EventsTab(QWidget):
         if kind == "trigger":
             self.view.select(None)
             self.view.highlight({e.get("ObjName", "") for e in self.map.events(el)} - {""})
-            if want == "scenes":
+            if timeline:
                 self.scene_view.show_scene(self.map, el)
                 self.stack.setCurrentIndex(4)
             else:
@@ -1165,7 +1204,7 @@ class EventsTab(QWidget):
     def _toggle_code(self, on):
         self._code_mode = on
         if self.cur is not None and self.cur_kind == "trigger":
-            self._fill_script()
+            self.select(self.cur, from_tree=True)      # a cutscene swaps its timeline for the start trigger's text
 
     def _blocks_changed(self):
         if not self._loading and self.cur_kind == "trigger":

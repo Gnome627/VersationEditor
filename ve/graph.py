@@ -38,6 +38,7 @@ class Node(QGraphicsItem):
         self.cond = bool(el is not None and el.get("scriptCondition"))
         self.res = bool(el is not None and el.get("scriptResult"))
         self.hello = self.name in self.view.hello
+        self.open_end = not self.ghost and d.unfinished(self.name)
         text = (el.get("text") if el is not None else "") or self.name
         if self.missing:
             text = self.name + " — нет такой реплики"
@@ -45,7 +46,8 @@ class Node(QGraphicsItem):
         self.lines = _wrap(text, fm, NODE_W - 2 * PAD - 6, 4)
         self.prepareGeometryChange()
         self.h = max(30.0, len(self.lines) * fm.lineSpacing() + 2 * PAD - 2)
-        self.setToolTip(self.name)
+        self.setToolTip(self.name + ("\nРазговор здесь не закончится: ответов нет и нет «Завершить разговор»"
+                                     if self.open_end else ""))
         self.update()
 
     def boundingRect(self) -> QRectF:
@@ -104,6 +106,11 @@ class Node(QGraphicsItem):
         if self.hello:
             p.setBrush(QColor(theme.RUST))
             p.drawEllipse(QPointF(11, -1), 4.5, 4.5)
+        if self.open_end:       # dead end: red bar under the node
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor("#c8372d"))
+            p.drawRoundedRect(QRectF(NODE_W / 2 - 22, self.h + 3, 44, 5), 2, 2)
+            p.setPen(QPen(QColor("#3d3e40"), 1))
         if (self.hover or sel) and not self.ghost:
             p.setBrush(QColor("#f4f4f5"))
             p.setPen(QPen(QColor("#3d3e40"), 1.2))
@@ -194,6 +201,7 @@ class GraphView(QGraphicsView):
     selected = Signal(str)          # reply name or ""
     structure_changed = Signal()    # added / removed / linked
     open_folder = Signal(str, str)  # folder, reply: jump to a foreign node
+    finish = Signal(str)            # reply that should get "end conversation"
 
     def __init__(self, dialogs, index):
         super().__init__()
@@ -424,6 +432,8 @@ class GraphView(QGraphicsView):
             if parents:
                 m.addAction("Левее среди ответов", lambda: self._shift(n.name, -1))
                 m.addAction("Правее среди ответов", lambda: self._shift(n.name, 1))
+            if self.dialogs.unfinished(n.name):
+                m.addAction("Завершить разговор здесь", lambda: self.finish.emit(n.name))
             m.addAction("Перенести в папку…", lambda: self._move(n.name))
             m.addSeparator()
             m.addAction("Удалить реплику", self.delete_selection)

@@ -204,6 +204,13 @@ class DialogsTab(QWidget):
         self.res = BlockList(app.index, "act", "dialog", app.quests.title)
         self.res.changed.connect(self._res)
         f.addWidget(self.res)
+        self.end_btn = QPushButton("Добавить «Завершить разговор»")
+        self.end_btn.setToolTip("У реплики нет ответов и нет завершения: в игре диалог на ней зависнет")
+        self.end_btn.setStyleSheet("color: #7a1f17;")
+        self.end_btn.clicked.connect(lambda: self._finish(self.cur))
+        self.end_btn.hide()
+        f.addWidget(self.end_btn)
+        self.graph.finish.connect(self._finish)
         f.addStretch(1)
         sa.setWidget(self.form)
         right.lay.addWidget(sa)
@@ -316,7 +323,9 @@ class DialogsTab(QWidget):
                 self.text.setPlainText(el.get("text"))
             self.cond.set_blocks(lua.parse_condition(el.get("scriptCondition")))
             self.res.set_blocks(lua.parse_actions(el.get("scriptResult")))
+            self.end_btn.setVisible(self.d.unfinished(name))
         else:
+            self.end_btn.hide()
             self.name.clear()
             self.text.clear()
             self.cond.set_blocks([])
@@ -368,6 +377,18 @@ class DialogsTab(QWidget):
         if self.cur and not self._loading:
             self.d.set(self.cur, "scriptResult", lua.render_actions(self.res.blocks))
             self.graph.refresh_node(self.cur)
+            self.end_btn.setVisible(self.d.unfinished(self.cur))
+
+    def _finish(self, name: str):
+        """Append "end conversation" to a reply that leads nowhere."""
+        el = self.d.items.get(name)
+        if el is None or not self.d.unfinished(name):
+            return
+        blocks = lua.parse_actions(el.get("scriptResult")) + [{"k": "end"}]
+        self.d.set(name, "scriptResult", lua.render_actions(blocks))
+        self.graph.refresh_node(name)
+        if name == self.cur:
+            self._select(name)
 
     def _play(self):
         if self.cur:

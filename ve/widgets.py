@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QFrame, QHBoxLayout, QInpu
                                QMessageBox, QPlainTextEdit, QPushButton, QSizePolicy, QToolButton, QVBoxLayout,
                                QWidget)
 
+import copy
 import html
 
 from . import lua
@@ -544,6 +545,29 @@ class BlockList(QWidget):
             j += step
         return None
 
+    clip: dict[str, list[dict]] = {}       # copied blocks by list kind, shared by every list of the window
+
+    def _clip_key(self) -> str:
+        return "cond" if self.mode == "cond" else ("ops" if self.mode == "ops" else "act:" + self.where)
+
+    def _copy(self, i: int, cut: bool = False):
+        BlockList.clip[self._clip_key()] = [copy.deepcopy(self.blocks[i])]
+        if cut:
+            self._remove(i)
+
+    def _paste(self, at: int | None = None):
+        """Insert the copied blocks after row `at` (at the end when None)."""
+        items = copy.deepcopy(BlockList.clip.get(self._clip_key(), []))
+        if not items:
+            return
+        at = len(self.blocks) if at is None else at + 1
+        self.blocks[at:at] = items
+        if self.mode == "cond":
+            for n, b in enumerate(self.blocks):
+                b["join"] = "" if n == 0 else (b.get("join") or "and")
+        self._rebuild()
+        self._emit()
+
     def _row_menu(self, i: int, pos):
         m = QMenu(self)
         b = self.blocks[i]
@@ -559,8 +583,13 @@ class BlockList(QWidget):
             m.addAction("Ниже", lambda: self._swap(i, down))
         if b["k"] not in ("lua", "group") and self.mode != "ops":
             m.addAction("Превратить в Lua", lambda: self._to_lua(i))
-        if m.actions():
-            m.exec(pos)
+        m.addSeparator()
+        m.addAction("Копировать", lambda: self._copy(i))
+        m.addAction("Вырезать", lambda: self._copy(i, cut=True))
+        if BlockList.clip.get(self._clip_key()):
+            m.addAction("Вставить после", lambda: self._paste(i))
+        m.addAction("Удалить", lambda: self._remove(i))
+        m.exec(pos)
 
     def _set(self, b, k, v):
         b[k] = v
@@ -627,6 +656,9 @@ class BlockList(QWidget):
         if self.mode == "cond":
             m.addAction("Группа в скобках", lambda: self._add({"k": "group", "items": []}))
         m.addAction("Lua", lambda: self._add({"k": "lua", "code": ""}))
+        if BlockList.clip.get(self._clip_key()):
+            m.addSeparator()
+            m.addAction("Вставить скопированное", lambda: self._paste())
         return m
 
     def _tip_many(self, blocks: list[dict]) -> str:

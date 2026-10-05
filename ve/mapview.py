@@ -213,17 +213,15 @@ class MapView(QGraphicsView):
         self.viewport().update()
 
     def frame_path(self):
-        """Zoom to the whole path: its points are too close to see on the full map."""
+        """Bring the path into view without touching the zoom: the map moves only when
+        the path is outside the window."""
         if not self.path or not self.path["pts"]:
             return
         xs = [d[k] for d in self.path["pts"] for k in ("x", "lx") if k in d]
         ys = [self._sy(d[k]) for d in self.path["pts"] for k in ("z", "lz") if k in d]
-        w = max(max(xs) - min(xs), max(ys) - min(ys), 60.0) * 1.6
-        self.resetTransform()
-        s = min(self.viewport().width(), self.viewport().height()) / w
-        self.scale(s, s)
-        self.centerOn((max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2)
-        self._zoomed()
+        centre = QPointF((max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2)
+        if not self.mapToScene(self.viewport().rect()).boundingRect().contains(centre):
+            self.centerOn(centre)
 
     def _sy(self, z: float) -> float:
         return self.world - z

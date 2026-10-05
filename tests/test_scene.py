@@ -121,7 +121,7 @@ def editing():
     # --- new cutscene ---
     et._new_cutscene()
     start = m.trigger("ve_Rolik")
-    assert et.mode == "scenes" and et.stack.currentIndex() == 4
+    assert et.mode == "trigs" and et.stack.currentIndex() == 4
     fam = m.family(start)
     assert [k for k, _a, _t in fam] == ["end"]
     fade = add_member(m, start, "fade", "")

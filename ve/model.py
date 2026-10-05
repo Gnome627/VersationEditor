@@ -170,6 +170,16 @@ class Dialogs(Foldered):
         el = self.items.get(name)
         return el.get("nextReplies").split() if el is not None else []
 
+    ENDS = re.compile(r"EndConversation|EndCoversation|LeaveTown|PassToMap|StartConversation|Cinematic|RestartGame")
+
+    def unfinished(self, name: str) -> bool:
+        """A reply with no answers after it whose result never ends the conversation:
+        in the game the dialog window would stay open with nothing to pick."""
+        el = self.items.get(name)
+        if el is None or el.get("nextReplies").split():
+            return False
+        return not self.ENDS.search(el.get("scriptResult") or "")
+
     def incoming(self) -> dict[str, list[str]]:
         inc: dict[str, list[str]] = {}
         for n, el in self.items.items():

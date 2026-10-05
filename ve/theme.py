@@ -97,6 +97,17 @@ def _truck():
     return im.resize((16, 16), Image.LANCZOS)
 
 
+def _film():
+    """Cutscene mark in the trigger list: a rust play triangle on a dark plate."""
+    from PIL import Image, ImageDraw
+    s = 8
+    im = Image.new("RGBA", (16 * s, 16 * s), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    d.rounded_rectangle((1 * s, 2.5 * s, 15 * s - 1, 13.5 * s), int(1.6 * s), fill=(52, 40, 28, 255))
+    d.polygon([(6 * s, 4.8 * s), (11.2 * s, 8 * s), (6 * s, 11.2 * s)], fill=(226, 178, 104, 255))
+    return im.resize((16, 16), Image.LANCZOS)
+
+
 def icon(name: str):
     from PySide6.QtGui import QIcon
     return QIcon(pix(name)) if name in _have else QIcon()
@@ -187,6 +198,7 @@ def build(game) -> Path:
     for name, f, colour in (("quest_a", "icn_quest-a.dds", (255, 165, 0)), ("quest_b", "icn_quest-b.dds", (235, 0, 235))):
         save(name, lambda f=f, colour=colour: load_image(radar / f) or _ring(colour))
     save("folder", _folder)
+    save("film", _film)
     save("truck", _truck)
     save("track", track)
     save("track_h", lambda: load_image(_dir / "track.png").rotate(90, expand=True))
