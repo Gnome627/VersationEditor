@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QFrame, QHBoxLayout, QInpu
 
 import copy
 import html
+import time
 
 from . import lua
 
@@ -182,13 +183,29 @@ class Choice(QComboBox):
 
     picked = Signal(str)
 
-    def __init__(self, choices: list[tuple[str, str]], value: str = ""):
+    def __init__(self, choices: list[tuple[str, str]], value: str = "", repick: bool = False):
         super().__init__()
+        self._closed = 0.0          # when the popup was last hidden
+        self._repick = repick       # picking the current item again is an action too (e.g. "choose a file…")
         self.setFocusPolicy(Qt.StrongFocus)
         for v, t in choices:
             self.addItem(t, v)
         self.set_value(value)
-        self.activated.connect(lambda _i: (self.updateGeometry(), self.picked.emit(self.currentData())))
+        self.activated.connect(self._activated)
+
+    def _activated(self, _i):
+        """Report a pick after the popup has closed, and only when the value changed.
+
+        Handlers usually rebuild the form this box sits in. Doing that from inside the click that
+        is still closing the popup (a double click picks the current item again) left the old popup
+        and the new box fighting for the screen.
+        """
+        v = self.currentData()
+        if v == self._value and not self._repick:
+            return
+        self._value = v
+        self.updateGeometry()
+        QTimer.singleShot(0, self, lambda: self.picked.emit(v))
 
     def sizeHint(self):
         # sized by the current value, not the longest item
@@ -199,11 +216,33 @@ class Choice(QComboBox):
         return QSize(44, super().minimumSizeHint().height())
 
     def showPopup(self):
-        # the field is narrow, the popup fits the longest item
+        """The field is narrow, the popup fits the longest item.
+
+        The popup window itself is widened: forcing a minimum width on the list inside a narrower
+        window makes Qt fight over the layout, which shows as flicker. A second request that comes
+        while the list is open or has just closed (the second click of a double click) is dropped.
+        """
+        if self.view().isVisible() or time.monotonic() - self._closed < 0.3:
+            return
         fm = QFontMetrics(self.view().font())
         widest = max((fm.horizontalAdvance(self.itemText(i)) for i in range(self.count())), default=0)
-        self.view().setMinimumWidth(max(widest + 56, self.width(), 120))
         super().showPopup()
+        box = self.view().window()
+        want = max(widest + 56, self.width(), 120)
+        if box is not self.window() and box.width() < want:
+            geo = box.geometry()
+            geo.setWidth(want)
+            screen = self.screen().availableGeometry() if self.screen() else None
+            if screen is not None and geo.right() > screen.right():
+                geo.moveRight(screen.right())
+            box.setGeometry(geo)
+
+    def hidePopup(self):
+        self._closed = time.monotonic()
+        super().hidePopup()
+
+    def mouseDoubleClickEvent(self, e):
+        e.accept()          # the first click already opened the list
 
     def wheelEvent(self, e):
         e.ignore()
@@ -214,6 +253,7 @@ class Choice(QComboBox):
             self.addItem(value, value)
             i = self.count() - 1
         self.setCurrentIndex(max(i, 0))
+        self._value = self.currentData()
 
     def value(self) -> str:
         return self.currentData() or ""

@@ -228,7 +228,7 @@ class SkinnedWizard:
 
         f.addWidget(head("Маска покраски"))
         src = Choice(skins + [("file", "файл маски: " + Path(j.mask_file).name if j.mask_file else "файл маски…")],
-                     "file" if j.mask_file else j.green)
+                     "file" if j.mask_file else j.green, repick=True)
         src.setToolTip("Скин с зелёной покраской (обычно _4) или готовая маска камуфляжа, например из M113")
         src.picked.connect(self._mask_source)
         f.addWidget(src)

@@ -97,6 +97,31 @@ def test():
         assert "StartCinematic" in et.t_code.toPlainText()
         et._toggle_code(False)
         assert et.stack.currentIndex() == 4
+        # dropdowns: picking the current item again (a double click does that) rebuilds nothing;
+        # a real change is reported once, after the popup is gone
+        from ve.widgets import Choice
+        ev = et.t_ev
+        et._as_trigger(start, start)
+        fills = []
+        real_fill = ev._fill
+        ev._fill = lambda: (fills.append(1), real_fill())[1]
+        box = next(ev.lay.itemAt(0).layout().itemAt(i).widget() for i in range(3)
+                   if isinstance(ev.lay.itemAt(0).layout().itemAt(i).widget(), Choice))
+        box.activated.emit(box.currentIndex())
+        box.activated.emit(box.currentIndex())
+        qapp.processEvents()
+        assert not fills
+        other = (box.currentIndex() + 1) % box.count()
+        keep_events = [dict(e) for e in ev.events]
+        box.setCurrentIndex(other)
+        box.activated.emit(other)
+        assert not fills                    # not from inside the click
+        for _ in range(3):
+            qapp.processEvents()
+        assert len(fills) == 1
+        m.set_events(start, keep_events)
+        ev._fill = real_fill
+        et._as_trigger(None, start)
         part = m.family(start)[0][2]
         et.select(part)
         assert et.stack.currentIndex() == 3 and et.cur is part
