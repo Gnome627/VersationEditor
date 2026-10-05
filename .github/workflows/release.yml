@@ -28,7 +28,7 @@ jobs:
         run: pip install -r requirements.txt pyinstaller
 
       - name: Import check
-        run: python -c "import ve.app, ve.tab_dialogs, ve.tab_quests, ve.tab_events, ve.preview; print('ok')"
+        run: python -c "import ve.app, ve.tab_dialogs, ve.tab_quests, ve.tab_events, ve.preview, ve.tab_models, ve.glview, ve.skinned_ui, ve.appicon; print('ok')"
 
       - name: Build exe
         run: python build_exe.py

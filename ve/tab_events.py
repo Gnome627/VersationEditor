@@ -418,6 +418,10 @@ class EventsTab(QWidget):
         self.n_spoken.editingFinished.connect(lambda: self._attr("SpokenCount", self.n_spoken.text().strip() or "0"))
         field_row(form, "Скин", self.n_skin)
         field_row(form, "Конфигурация", self.n_cfg)
+        look = QPushButton("Подобрать вид")
+        look.setToolTip("Открыть маску во вкладке «Модели» и выбрать скин и конфигурацию")
+        look.clicked.connect(self._pick_look)
+        field_row(form, "", look)
         field_row(form, "Разговоров на старте", self.n_spoken)
         f.addLayout(form)
         self.n_barman = QCheckBox("Бармен")
@@ -894,6 +898,18 @@ class EventsTab(QWidget):
         return el.get("text") if el is not None else "нет такой реплики"
 
     # --- editing places ---
+    def _pick_look(self):
+        el, m = self.cur, self.map
+        if el is None:
+            return
+
+        def done(skin, cfg):
+            m.set_attr(el, "skin", skin, True)
+            m.set_attr(el, "cfg", cfg, True)
+            self.select(el)
+        self.app.pick_look(el.get("ModelName"), el.get("skin"), el.get("cfg"),
+                           m.full_name(el.get("Name")) or el.get("Name"), done)
+
     def _attr(self, attr, value, optional=False):
         if self._loading or self.cur is None:
             return

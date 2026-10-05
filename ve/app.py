@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel, Q
 from . import theme
 from .game import Game, GameError, find_root
 from .model import Dialogs, Index, MapData, Quests, Towns, _replace_quoted, _replace_word
+from .models import ModelLib
 
 
 class App:
@@ -23,6 +24,8 @@ class App:
         self.quests = Quests(game)
         self.towns = Towns(game)
         self.index = Index(game, self.dialogs, self.quests, self.towns)
+        self.models = ModelLib(game)
+        self.index.pick_look = self.pick_look
         self._maps: dict[str, MapData] = {}
         self.window: "MainWindow | None" = None
 
@@ -66,6 +69,19 @@ class App:
             for t in self.window.tabs:
                 t.reload()
 
+    def pick_look(self, model: str, skin: str, cfg: str, title: str, done):
+        """Open the model in the Models tab; the chosen skin and config come back through `done`."""
+        w = self.window
+        if not w or not model:
+            return
+        back = w.stack.currentIndex()
+
+        def finish(s, c):
+            w.show_tab(back)
+            done(s, c)
+        w.show_tab(3)
+        w.tabs[3].pick(model, skin or "", cfg or "", title, finish)
+
     def open_dialog(self, reply: str):
         if self.window:
             self.window.show_tab(0)
@@ -78,6 +94,9 @@ class MainWindow(QMainWindow):
         self.app = app
         app.window = self
         self.setWindowTitle("VersationEditor")
+        from . import appicon
+        self.setWindowIcon(appicon.qicon())
+        QApplication.instance().setWindowIcon(self.windowIcon())
         self.resize(1440, 880)
         root = QWidget()
         root.setObjectName("root")
@@ -89,12 +108,13 @@ class MainWindow(QMainWindow):
         from .tab_dialogs import DialogsTab
         from .tab_events import EventsTab
         from .tab_quests import QuestsTab
-        self.tabs = [DialogsTab(app), QuestsTab(app), EventsTab(app)]
+        from .tab_models import ModelsTab
+        self.tabs = [DialogsTab(app), QuestsTab(app), EventsTab(app), ModelsTab(app)]
 
         ribbon = QHBoxLayout()
         ribbon.setSpacing(4)
         self.tab_btns = []
-        for i, title in enumerate(("Диалоги", "Квесты", "Окружение")):
+        for i, title in enumerate(("Диалоги", "Квесты", "Окружение", "Модели")):
             b = QPushButton(title)
             b.setObjectName("tab")
             b.setCheckable(True)
@@ -122,7 +142,7 @@ class MainWindow(QMainWindow):
         self._commit = QTimer(self, singleShot=True, interval=450)   # a burst of edits is one undo step
         self._commit.timeout.connect(app.game.commit)
         app.game.on_change(self._commit.start)
-        for i in range(3):
+        for i in range(4):
             QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self, lambda i=i: self.show_tab(i))
         app.game.on_change(self._dirty)
         self.show_tab(0)
@@ -136,10 +156,17 @@ class MainWindow(QMainWindow):
         self.app.index.current_map = self.tabs[2].map if i == 2 else None
         if i == 1:
             self.tabs[1].tree.rebuild()
+        if i == 3:
+            self.tabs[3].activate()
 
     def _history(self, step):
         if step():
-            self.app.reload_all()
+            docs = self.app.game.last_step
+            if docs and all(d.rel.lower().endswith(".gam") or d.rel.lower() == "data/models/animmodels.xml"
+                            for d in docs):
+                self.tabs[3].reload()       # a model edit: dialogs, quests and maps are untouched
+            else:
+                self.app.reload_all()
             self._dirty()
 
     def _dirty(self):
@@ -163,6 +190,7 @@ class MainWindow(QMainWindow):
             box.exec()
             return False
         self.app.index.reset()
+        self.tabs[3].reload()
         return True
 
     def closeEvent(self, e):

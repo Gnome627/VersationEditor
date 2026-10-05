@@ -78,6 +78,25 @@ def _folder():
     return im.resize((16, 16), Image.LANCZOS)
 
 
+def _truck():
+    """Truck icon for the vehicles folder, same palette as the folder."""
+    from PIL import Image, ImageDraw
+    s = 8
+    im = Image.new("RGBA", (16 * s, 16 * s), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    edge, back, front, light = (52, 40, 28, 255), (122, 94, 60, 255), (176, 138, 92, 255), (214, 184, 140, 255)
+    r = int(0.9 * s)
+    d.rounded_rectangle((0.5 * s, 3 * s, 9.5 * s, 11.5 * s), r, fill=front, outline=edge, width=s)        # cargo box
+    d.line((2 * s, 4.6 * s, 8 * s, 4.6 * s), fill=light, width=int(0.8 * s))
+    d.polygon([(9.5 * s, 11.5 * s), (9.5 * s, 5.5 * s), (12.6 * s, 5.5 * s), (15.3 * s, 8.4 * s), (15.3 * s, 11.5 * s)],
+              fill=back, outline=edge, width=s)                                                             # cab
+    d.polygon([(10.9 * s, 6.9 * s), (12.2 * s, 6.9 * s), (13.7 * s, 8.6 * s), (10.9 * s, 8.6 * s)], fill=light)  # window
+    for x in (4.2, 12.0):                                                                                   # wheels
+        d.ellipse(((x - 2.2) * s, 9.6 * s, (x + 2.2) * s, 14 * s), fill=edge)
+        d.ellipse(((x - 0.9) * s, 10.9 * s, (x + 0.9) * s, 12.7 * s), fill=front)
+    return im.resize((16, 16), Image.LANCZOS)
+
+
 def icon(name: str):
     from PySide6.QtGui import QIcon
     return QIcon(pix(name)) if name in _have else QIcon()
@@ -168,6 +187,7 @@ def build(game) -> Path:
     for name, f, colour in (("quest_a", "icn_quest-a.dds", (255, 165, 0)), ("quest_b", "icn_quest-b.dds", (235, 0, 235))):
         save(name, lambda f=f, colour=colour: load_image(radar / f) or _ring(colour))
     save("folder", _folder)
+    save("truck", _truck)
     save("track", track)
     save("track_h", lambda: load_image(_dir / "track.png").rotate(90, expand=True))
     return _dir

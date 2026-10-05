@@ -393,7 +393,9 @@ def _message(bl, b: dict, col: QVBoxLayout):
     col.addWidget(text)
     col.addLayout(_line("через, с", delay, "на экране, с", time))
     col.addLayout(_line("портрет", model, stretch_last=True))
-    col.addLayout(_line("скин", small["skin"], "cfg", small["cfg"], "слот", small["slot"]))
+    look = QPushButton("вид")
+    look.setToolTip("Открыть маску во вкладке «Модели» и выбрать скин и cfg")
+    col.addLayout(_line("скин", small["skin"], "cfg", small["cfg"], "слот", small["slot"], look))
 
     def save():
         mid_now = str(b.get("id", "")).strip()
@@ -418,6 +420,16 @@ def _message(bl, b: dict, col: QVBoxLayout):
         old_focus_out(e)
         save()
     text.focusOutEvent = focus_out
+
+    def pick():
+        def done(skin, cfg):
+            small["skin"].setText(skin)
+            small["cfg"].setText(cfg)
+            save()
+        fn = getattr(bl.index, "pick_look", None)
+        if fn and model.text().strip():
+            fn(model.text().strip(), small["skin"].text(), small["cfg"].text(), f"реплика {b.get('id', '')}", done)
+    look.clicked.connect(pick)
 
     def set_id(v):
         b["id"] = v or "0"

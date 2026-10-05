@@ -120,6 +120,7 @@ class Game:
         self._terrain: dict[str, tuple[int, array] | None] = {}
         self._undo: list[list] = []
         self._redo: list[list] = []
+        self.last_step: list = []       # documents restored by the last undo/redo
 
     # --- documents ---
     def doc(self, rel: str, create_root: str | None = None) -> Doc:
@@ -176,6 +177,7 @@ class Game:
         for d, before, _after in group:
             d.restore(before)
         self._redo.append(group)
+        self.last_step = [d for d, _b, _a in group]
         return True
 
     def redo(self) -> bool:
@@ -186,6 +188,7 @@ class Game:
         for d, _before, after in group:
             d.restore(after)
         self._undo.append(group)
+        self.last_step = [d for d, _b, _a in group]
         return True
 
     def dirty_docs(self) -> list[Doc]:
@@ -253,10 +256,48 @@ class Game:
         return None
 
 
+def _plain_dds(path: Path):
+    """Uncompressed DDS straight from its bytes. Pillow decodes those pixel by pixel in Python,
+    which takes about a second for one 1024x1024 texture."""
+    from PIL import Image
+    with open(path, "rb") as fh:
+        head = fh.read(128)
+        if len(head) < 128 or head[:4] != b"DDS ":
+            return None
+        h, w = struct.unpack_from("<II", head, 12)
+        flags, fourcc, bits, rm, gm, bm, am = struct.unpack_from("<I4sIIIII", head, 80)
+        if flags & 0x4 or not w or not h:       # compressed: Pillow does it natively
+            return None
+        mode = {(32, 0xFF0000, 0xFF): "BGRA" if am else "BGRX", (32, 0xFF, 0xFF0000): "RGBA" if am else "RGBX",
+                (24, 0xFF0000, 0xFF): "BGR", (24, 0xFF, 0xFF0000): "RGB"}.get((bits, rm, bm))
+        if mode is None and bits == 8 and rm == 0xFF and not am:
+            mode = "L"
+        packed = {(0xF00, 0xF0, 0xF, 0xF000): ("RGBA", "RGBA;4B", True),      # A4R4G4B4, red and blue swapped below
+                  (0xF800, 0x7E0, 0x1F, 0): ("RGB", "BGR;16", False),
+                  (0x7C00, 0x3E0, 0x1F, 0x8000): ("RGBA", "BGRA;15", False),
+                  (0x7C00, 0x3E0, 0x1F, 0): ("RGB", "BGR;15", False)}.get((rm, gm, bm, am)) if bits == 16 else None
+        if mode is None and packed is None:
+            return None
+        raw = fh.read(w * h * bits // 8)
+        if len(raw) < w * h * bits // 8:
+            return None
+    if packed:
+        im = Image.frombuffer(packed[0], (w, h), raw, "raw", packed[1], 0, 1)
+        if packed[2]:
+            r, g, b, a = im.split()
+            im = Image.merge("RGBA", (b, g, r, a))
+        return im.convert("RGBA")
+    out = "L" if mode == "L" else ("RGBA" if len(mode) == 4 and mode[3] == "A" else "RGB")
+    return Image.frombuffer(out, (w, h), raw, "raw", mode, 0, 1).convert("RGBA")
+
+
 def load_image(path: Path):
     """DDS/PNG -> PIL RGBA image, or None."""
     try:
         from PIL import Image
+        im = _plain_dds(path)       # by content: many *.tga of the game are DDS inside
+        if im is not None:
+            return im
         im = Image.open(path)
         im.load()
         return im.convert("RGBA")
